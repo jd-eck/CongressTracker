@@ -3,28 +3,32 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import NotFound from "@/pages/not-found";
-import Layout from "./components/layout/layout";
-import Dashboard from "./pages/dashboard";
-import Representative from "./pages/representative";
-import Bill from "./pages/bill";
+import Dashboard from "@/pages/Dashboard";
+import Header from "@/components/layout/Header";
+import Footer from "@/components/layout/Footer";
+import MyPreferences from "@/pages/MyPreferences";
+import About from "@/pages/About";
 
 function Router() {
   return (
-    <Layout>
-      <Switch>
-        <Route path="/" component={Dashboard} />
-        <Route path="/representative/:id" component={Representative} />
-        <Route path="/bill/:congress/:billId" component={Bill} />
-        <Route component={NotFound} />
-      </Switch>
-    </Layout>
+    <Switch>
+      <Route path="/" component={Dashboard} />
+      <Route path="/preferences" component={MyPreferences} />
+      <Route path="/about" component={About} />
+      {/* Fallback to 404 */}
+      <Route component={NotFound} />
+    </Switch>
   );
 }
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router />
+      <div className="flex flex-col min-h-screen">
+        <Header />
+        <Router />
+        <Footer />
+      </div>
       <Toaster />
     </QueryClientProvider>
   );
