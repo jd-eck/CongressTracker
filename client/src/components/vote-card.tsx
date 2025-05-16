@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
-import { ThumbsUp, ThumbsDown, ChevronDown, ChevronUp } from "lucide-react";
+import { ThumbsUp, ThumbsDown, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { ImportanceSlider } from "@/components/ui/importance-slider";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
@@ -130,7 +130,14 @@ export default function VoteCard({
 
   const handleSetImportance = (value: number) => {
     setImportance(value);
-    if (agreement !== null) {
+    
+    // If importance is set to 0 ("Don't track"), we don't need agreement
+    if (value === 0) {
+      // For "Don't track", we'll still save the preference but mark agreement as true
+      // just to have a consistent value in the database
+      mutation.mutate({ agreement: true, importance: 0 });
+    } else if (agreement !== null) {
+      // If agreement is set and importance is not 0, save as normal
       mutation.mutate({ agreement, importance: value });
     }
   };
@@ -205,7 +212,7 @@ export default function VoteCard({
             
             {mutation.isPending && (
               <div className="flex items-center justify-center mt-4">
-                <LoadingSpinner size="sm" />
+                <Loader2 className="h-4 w-4 animate-spin" />
                 <span className="ml-2 text-sm text-muted-foreground">Saving your preference...</span>
               </div>
             )}
