@@ -1,10 +1,15 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { formatImportanceLevel } from "@/lib/utils";
+import { UserPreference } from "@shared/schema";
 
 export default function MyPreferences() {
   // For simplicity, we're using a hardcoded user ID
   const userId = 1;
   const { data: preferences, isLoading, error } = useUserPreferences(userId);
+
+  // Ensure preferences is an array
+  const preferencesArray = Array.isArray(preferences) ? preferences : [];
 
   return (
     <main className="flex-grow container mx-auto p-4">
@@ -20,21 +25,19 @@ export default function MyPreferences() {
           <Card>
             <CardContent className="pt-6">
               <div className="text-center text-red-500">
-                <span className="material-icons text-3xl mb-2">error_outline</span>
+                <p className="text-lg mb-2">⚠️ Error</p>
                 <p>Failed to load your preferences. Please try again later.</p>
               </div>
             </CardContent>
           </Card>
-        ) : preferences && preferences.length > 0 ? (
+        ) : preferencesArray.length > 0 ? (
           <div className="space-y-4">
-            {preferences.map((pref) => (
+            {preferencesArray.map((pref: UserPreference) => (
               <Card key={pref.id}>
                 <CardHeader>
-                  <CardTitle>{pref.vote?.billTitle || `Vote #${pref.voteId}`}</CardTitle>
+                  <CardTitle>{`Vote #${pref.voteId}`}</CardTitle>
                   <CardDescription>
-                    {pref.vote?.date 
-                      ? `Voted on ${new Date(pref.vote.date).toLocaleDateString()}`
-                      : ''}
+                    Bill ID: {pref.voteId}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -48,11 +51,7 @@ export default function MyPreferences() {
                     <div>
                       <span className="font-medium text-gray-700 mr-2">Importance:</span>
                       <span className="text-primary">
-                        {pref.importance === 1 && "Very Low"}
-                        {pref.importance === 2 && "Low"}
-                        {pref.importance === 3 && "Medium"}
-                        {pref.importance === 4 && "High"}
-                        {pref.importance === 5 && "Very High"}
+                        {formatImportanceLevel(pref.importance)}
                       </span>
                     </div>
                   </div>
@@ -64,7 +63,7 @@ export default function MyPreferences() {
           <Card>
             <CardContent className="pt-6">
               <div className="text-center text-neutral-500">
-                <span className="material-icons text-3xl mb-2">info_outline</span>
+                <p className="text-lg mb-2">ℹ️ No Preferences</p>
                 <p>You haven't set any preferences yet. Visit the Dashboard to view voting records and set your preferences.</p>
               </div>
             </CardContent>
