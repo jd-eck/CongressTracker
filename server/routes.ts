@@ -139,96 +139,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get member votes from storage
       let memberVotes = await storage.getMemberVotes(memberId);
       
-      // If we don't have any member votes in storage, fetch from the API
+      // If we don't have any member votes in storage, create sample votes
       if (memberVotes.length === 0) {
-        // With Congress.gov API, we need to fetch house votes and then filter for this member
-        // First, determine if the member is in the House
+        // Determine if the member is in the House or Senate
         const representative = await storage.getRepresentativeByMemberId(memberId);
         
+        // Create sample bills based on chamber
+        let sampleBills;
+        
         if (representative && representative.chamber.toLowerCase() === 'house') {
-          // Fetch House votes
-          const response = await axios.get(`${API_BASE_URL}/house-vote`, {
-            params: {
-              api_key: API_KEY,
-              format: 'json',
-              limit: 100
-            }
-          });
-          
-          const houseVotes = response.data.houseRollCallVotes || [];
-          
-          for (const vote of houseVotes) {
-            // Create vote record if it doesn't exist
-            const billId = vote.legislationNumber || `vote-${vote.rollCallNumber}`;
-            let voteRecord = await storage.getVoteByBillId(billId);
-            
-            if (!voteRecord) {
-              voteRecord = await storage.createVote({
-                billId: billId,
-                billTitle: vote.title || `Vote on ${vote.legislationNumber || "measure"}`,
-                billDescription: vote.question || "",
-                category: vote.subject || "Uncategorized",
-                voteDate: new Date(vote.updateDate || vote.voteDate || Date.now())
-              });
-            }
-            
-            // Check if this member voted on this bill
-            // Note: Congress.gov API doesn't provide individual member votes in the same way
-            // In a real implementation, we'd need to get detailed vote data
-            // For this prototype, we'll generate a random position
-            const positions = ["Yes", "No", "Present", "Not Voting"];
-            const randomPosition = positions[Math.floor(Math.random() * positions.length)];
-            
-            // Create member vote record
-            await storage.createMemberVote({
-              memberId,
-              billId: voteRecord.billId,
-              position: randomPosition
-            });
-          }
-          
-          // Fetch again with the populated storage
-          memberVotes = await storage.getMemberVotes(memberId);
+          sampleBills = [
+            { id: "hr1234", title: "American Innovation Act", desc: "A bill to boost technology research", cat: "Science, Technology, Communications" },
+            { id: "hr2345", title: "Affordable Housing Act", desc: "A bill to increase housing accessibility", cat: "Housing and Community Development" },
+            { id: "hr3456", title: "Clean Energy Jobs Act", desc: "A bill to promote renewable energy jobs", cat: "Energy" },
+            { id: "hr4567", title: "Veterans Health Care Act", desc: "A bill to improve veterans' healthcare access", cat: "Armed Forces and National Security" },
+            { id: "hr5678", title: "Student Loan Relief Act", desc: "A bill to provide relief for student loan borrowers", cat: "Education" }
+          ];
         } else {
-          // For Senate members, we'd need a different approach since the Congress.gov API 
-          // doesn't have Senate vote data in the same format
-          // For this prototype, we'll create some sample votes
-          const sampleBills = [
+          sampleBills = [
             { id: "s1234", title: "Agriculture Improvement Act", desc: "A bill to improve agricultural programs", cat: "Agriculture" },
             { id: "s2345", title: "National Defense Authorization Act", desc: "A bill to authorize defense spending", cat: "Armed Forces and National Security" },
             { id: "s3456", title: "Healthcare Reform Act", desc: "A bill to reform healthcare delivery systems", cat: "Health" },
             { id: "s4567", title: "Education Funding Act", desc: "A bill to provide funding for education programs", cat: "Education" },
             { id: "s5678", title: "Infrastructure Investment Act", desc: "A bill to fund infrastructure improvements", cat: "Transportation and Public Works" }
           ];
+        }
+        
+        // Add bills to storage
+        for (const bill of sampleBills) {
+          // Create vote record if it doesn't exist
+          let voteRecord = await storage.getVoteByBillId(bill.id);
           
-          for (const bill of sampleBills) {
-            // Create vote record if it doesn't exist
-            let voteRecord = await storage.getVoteByBillId(bill.id);
-            
-            if (!voteRecord) {
-              voteRecord = await storage.createVote({
-                billId: bill.id,
-                billTitle: bill.title,
-                billDescription: bill.desc,
-                category: bill.cat,
-                voteDate: new Date(Date.now() - Math.floor(Math.random() * 30 * 24 * 60 * 60 * 1000)) // Random date within last 30 days
-              });
-            }
-            
-            // Create member vote record with random position
-            const positions = ["Yes", "No", "Present", "Not Voting"];
-            const randomPosition = positions[Math.floor(Math.random() * positions.length)];
-            
-            await storage.createMemberVote({
-              memberId,
-              billId: voteRecord.billId,
-              position: randomPosition
+          if (!voteRecord) {
+            voteRecord = await storage.createVote({
+              billId: bill.id,
+              billTitle: bill.title,
+              billDescription: bill.desc,
+              category: bill.cat,
+              voteDate: new Date(Date.now() - Math.floor(Math.random() * 30 * 24 * 60 * 60 * 1000)) // Random date within last 30 days
             });
           }
           
-          // Fetch again with the populated storage
-          memberVotes = await storage.getMemberVotes(memberId);
+          // Create member vote record with random position
+          const positions = ["Yes", "No", "Present", "Not Voting"];
+          const randomPosition = positions[Math.floor(Math.random() * positions.length)];
+          
+          await storage.createMemberVote({
+            memberId,
+            billId: voteRecord.billId,
+            position: randomPosition
+          });
         }
+        
+        // Fetch again with the populated storage
+        memberVotes = await storage.getMemberVotes(memberId);
       }
       
       // Get all votes information for these member votes
@@ -336,7 +300,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/categories", async (req, res) => {
     try {
       const votes = await storage.getVotes();
-      const categories = [...new Set(votes.map(v => v.category))];
+      // Extract unique categories from votes
+      const categories: string[] = [];
+      votes.forEach(vote => {
+        if (vote.category && !categories.includes(vote.category)) {
+          categories.push(vote.category);
+        }
+      });
       res.json(categories);
     } catch (error) {
       console.error("Error fetching categories:", error);
