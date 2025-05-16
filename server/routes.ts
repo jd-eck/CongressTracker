@@ -147,7 +147,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Create sample bills based on chamber
         let sampleBills;
         
-        if (representative && representative.chamber.toLowerCase() === 'house') {
+        if (representative && representative.chamber && representative.chamber.toLowerCase() === 'house') {
           sampleBills = [
             { id: "hr1234", title: "American Innovation Act", desc: "A bill to boost technology research", cat: "Science, Technology, Communications" },
             { id: "hr2345", title: "Affordable Housing Act", desc: "A bill to increase housing accessibility", cat: "Housing and Community Development" },
