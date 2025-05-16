@@ -1,5 +1,3 @@
-import { Link } from "wouter";
-
 export default function Footer() {
   return (
     <footer className="bg-neutral-500 text-white py-4">
@@ -35,7 +33,7 @@ export default function Footer() {
             <div>
               <h3 className="font-bold mb-2">About</h3>
               <ul className="space-y-1">
-                <li><Link href="/about"><a className="hover:text-white/80">Our Mission</a></Link></li>
+                <li><div className="hover:text-white/80 cursor-pointer" onClick={() => window.location.href = '/about'}>Our Mission</div></li>
                 <li><a href="#" className="hover:text-white/80">Team</a></li>
                 <li><a href="#" className="hover:text-white/80">Sponsors</a></li>
               </ul>
