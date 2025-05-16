@@ -1,25 +1,42 @@
 import axios from "axios";
 
-// This API key is a placeholder - in a real application, this would come from environment variables
-const API_KEY = process.env.PROPUBLICA_API_KEY || "DEMO_KEY";
-const API_BASE_URL = "https://api.propublica.org/congress/v1";
+// Get API key from environment variables
+const API_KEY = import.meta.env.VITE_CONGRESS_GOV_API_KEY;
+const API_BASE_URL = "https://api.congress.gov";
 
 /**
- * ProPublica Congress API client
- * Documentation: https://projects.propublica.org/api-docs/congress-api/
+ * Congress.gov API client
+ * Based on the documentation from api.congress.gov
  */
 const congressApi = {
   /**
-   * Get members of a specific chamber for a specific congress
+   * Get members of a specific state
    */
-  getMembers: async (congress = "117", chamber = "senate") => {
+  getMembers: async (stateCode?: string, chamber?: string) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/${congress}/${chamber}/members.json`, {
-        headers: {
-          "X-API-Key": API_KEY
+      let url = `${API_BASE_URL}/member`;
+      if (stateCode) {
+        url += `/${stateCode}`;
+      }
+      
+      const response = await axios.get(url, {
+        params: {
+          api_key: API_KEY,
+          format: 'json',
+          limit: 250
         }
       });
-      return response.data.results[0].members;
+      
+      // Filter by chamber if specified
+      let members = response.data.members || [];
+      if (chamber) {
+        const chamberFilter = chamber.toLowerCase();
+        members = members.filter((member: any) => 
+          member.chamber && member.chamber.toLowerCase() === chamberFilter
+        );
+      }
+      
+      return members;
     } catch (error) {
       console.error("Error fetching members:", error);
       throw new Error("Failed to fetch congressional members");
@@ -27,73 +44,100 @@ const congressApi = {
   },
   
   /**
-   * Get a specific member by ID
+   * Get members by state and district
    */
-  getMember: async (memberId: string) => {
+  getMembersByDistrict: async (stateCode: string, district: string) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/members/${memberId}.json`, {
-        headers: {
-          "X-API-Key": API_KEY
+      const response = await axios.get(`${API_BASE_URL}/member/${stateCode}/${district}`, {
+        params: {
+          api_key: API_KEY,
+          format: 'json'
         }
       });
-      return response.data.results[0];
+      return response.data.members;
     } catch (error) {
-      console.error("Error fetching member:", error);
-      throw new Error("Failed to fetch congressional member");
+      console.error("Error fetching members by district:", error);
+      throw new Error("Failed to fetch congressional members for district");
     }
   },
   
   /**
-   * Get votes for a specific member
+   * Get members by congress and state
    */
-  getMemberVotes: async (memberId: string) => {
+  getMembersByCongress: async (congress: string, stateCode: string, district?: string) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/members/${memberId}/votes.json`, {
-        headers: {
-          "X-API-Key": API_KEY
+      let url = `${API_BASE_URL}/member/congress/${congress}/${stateCode}`;
+      if (district) {
+        url += `/${district}`;
+      }
+      
+      const response = await axios.get(url, {
+        params: {
+          api_key: API_KEY,
+          format: 'json'
         }
       });
-      return response.data.results;
+      return response.data.members;
     } catch (error) {
-      console.error("Error fetching member votes:", error);
-      throw new Error("Failed to fetch member voting record");
+      console.error("Error fetching members by congress:", error);
+      throw new Error("Failed to fetch congressional members for congress");
     }
   },
   
   /**
-   * Get details for a specific vote
+   * Get house vote data
    */
-  getVote: async (congress: string, chamber: string, sessionNumber: string, rollCallNumber: string) => {
+  getHouseVotes: async () => {
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/${congress}/${chamber}/sessions/${sessionNumber}/votes/${rollCallNumber}.json`, 
-        {
-          headers: {
-            "X-API-Key": API_KEY
-          }
+      const response = await axios.get(`${API_BASE_URL}/house-vote`, {
+        params: {
+          api_key: API_KEY,
+          format: 'json',
+          limit: 50
         }
-      );
-      return response.data.results.votes.vote;
+      });
+      return response.data.houseRollCallVotes;
     } catch (error) {
-      console.error("Error fetching vote details:", error);
-      throw new Error("Failed to fetch vote details");
+      console.error("Error fetching house votes:", error);
+      throw new Error("Failed to fetch house voting records");
     }
   },
   
   /**
-   * Get recent votes
+   * Get house votes for a specific congress
    */
-  getRecentVotes: async (chamber = "both") => {
+  getHouseVotesByCongress: async (congress: string) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/${chamber}/votes/recent.json`, {
-        headers: {
-          "X-API-Key": API_KEY
+      const response = await axios.get(`${API_BASE_URL}/house-vote/${congress}`, {
+        params: {
+          api_key: API_KEY,
+          format: 'json',
+          limit: 50
         }
       });
-      return response.data.results.votes;
+      return response.data.houseRollCallVotes;
     } catch (error) {
-      console.error("Error fetching recent votes:", error);
-      throw new Error("Failed to fetch recent votes");
+      console.error("Error fetching house votes by congress:", error);
+      throw new Error("Failed to fetch house voting records for congress");
+    }
+  },
+  
+  /**
+   * Get house votes for a specific congress and session
+   */
+  getHouseVotesBySession: async (congress: string, session: string) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/house-vote/${congress}/${session}`, {
+        params: {
+          api_key: API_KEY,
+          format: 'json',
+          limit: 50
+        }
+      });
+      return response.data.houseRollCallVotes;
+    } catch (error) {
+      console.error("Error fetching house votes by session:", error);
+      throw new Error("Failed to fetch house voting records for session");
     }
   }
 };

@@ -126,7 +126,7 @@ export default function VotingHistory({
               <SelectValue placeholder="All Categories" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="All Categories">All Categories</SelectItem>
+              <SelectItem value="all_categories">All Categories</SelectItem>
               {categories.map((cat) => (
                 <SelectItem key={cat} value={cat}>{cat}</SelectItem>
               ))}
@@ -137,10 +137,10 @@ export default function VotingHistory({
               <SelectValue placeholder="All Time" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="All Time">All Time</SelectItem>
-              <SelectItem value="Last 30 Days">Last 30 Days</SelectItem>
-              <SelectItem value="Last 90 Days">Last 90 Days</SelectItem>
-              <SelectItem value="This Year">This Year</SelectItem>
+              <SelectItem value="all_time">All Time</SelectItem>
+              <SelectItem value="last_30_days">Last 30 Days</SelectItem>
+              <SelectItem value="last_90_days">Last 90 Days</SelectItem>
+              <SelectItem value="this_year">This Year</SelectItem>
             </SelectContent>
           </Select>
         </div>
