@@ -2,6 +2,9 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
+// Make API key available to client
+process.env.VITE_CONGRESS_GOV_API_KEY = process.env.CONGRESS_GOV_API_KEY;
+
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
