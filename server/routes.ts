@@ -1,226 +1,265 @@
-import type { Express, Request, Response } from "express";
+import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import axios from "axios";
 import { z } from "zod";
-import { insertUserVotePreferenceSchema, insertRecentRepSchema } from "@shared/schema";
+import { 
+  insertUserPreferenceSchema, 
+  type CongressMember, 
+  type CongressVote
+} from "@shared/schema";
 
-// ProPublica API URL and key
-const PROPUBLICA_API_BASE = "https://api.propublica.org/congress/v1";
-const PROPUBLICA_API_KEY = process.env.PROPUBLICA_API_KEY || "";
-
-// Create API client for ProPublica
-const propublicaClient = axios.create({
-  baseURL: PROPUBLICA_API_BASE,
-  headers: {
-    "X-API-Key": PROPUBLICA_API_KEY
-  }
-});
+// ProPublica API key
+const API_KEY = process.env.PROPUBLICA_API_KEY || "DEMO_KEY";
+const API_BASE_URL = "https://api.propublica.org/congress/v1";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
-
-  // Endpoint to search for congress members
-  app.get("/api/members", async (req: Request, res: Response) => {
+  // API routes for representatives
+  app.get("/api/representatives", async (req, res) => {
     try {
-      const { chamber = "house", state, district, query } = req.query;
+      const { state, chamber, name } = req.query;
       
-      if (query) {
-        // Search by name is handled differently
-        const houseResponse = await propublicaClient.get(`/116/house/members.json`);
-        const senateResponse = await propublicaClient.get(`/116/senate/members.json`);
-        
-        const allMembers = [
-          ...houseResponse.data.results[0].members,
-          ...senateResponse.data.results[0].members
-        ];
-        
-        const queryStr = String(query).toLowerCase();
-        const filtered = allMembers.filter(member => 
-          member.name.toLowerCase().includes(queryStr)
-        );
-        
-        return res.json({ results: filtered });
-      }
+      const filters: { state?: string, chamber?: string, name?: string } = {};
+      if (state && typeof state === "string") filters.state = state;
+      if (chamber && typeof chamber === "string") filters.chamber = chamber;
+      if (name && typeof name === "string") filters.name = name;
       
-      // Filter by chamber, state and district
-      let url = `/116/${chamber}/members.json`;
+      const representatives = await storage.getRepresentatives(filters);
       
-      if (state) {
-        url = `/members/${chamber}/${state}/current.json`;
-      }
-      
-      const response = await propublicaClient.get(url);
-      
-      let members = response.data.results;
-      
-      // Filter by district if provided
-      if (district && chamber === "house") {
-        members = members.filter((member: any) => 
-          member.district === String(district)
-        );
-      }
-      
-      res.json({ results: members });
-    } catch (error) {
-      console.error("Error fetching members:", error);
-      res.status(500).json({ error: "Failed to fetch congress members" });
-    }
-  });
-
-  // Endpoint to get specific member details
-  app.get("/api/members/:id", async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      
-      const response = await propublicaClient.get(`/members/${id}.json`);
-      const member = response.data.results[0];
-      
-      // Add to recent reps
-      try {
-        await storage.addRecentRep({
-          userId: 1, // Use default user for now
-          memberId: member.id,
-          memberName: member.name,
-          chamber: member.current_role?.chamber || "house",
-          state: member.current_role?.state || member.roles[0].state,
-          district: member.current_role?.district || member.roles[0].district,
-          party: member.current_party || member.current_role?.party || member.roles[0].party,
+      // If we don't have any representatives in storage, fetch from the API
+      if (representatives.length === 0) {
+        const chamberToFetch = chamber || "senate";
+        const response = await axios.get(`${API_BASE_URL}/116/${chamberToFetch}/members.json`, {
+          headers: {
+            "X-API-Key": API_KEY
+          }
         });
-      } catch (e) {
-        console.error("Error saving recent rep:", e);
+        
+        const members: CongressMember[] = response.data.results[0].members;
+        
+        for (const member of members) {
+          const representative = {
+            memberId: member.id,
+            firstName: member.first_name,
+            lastName: member.last_name,
+            chamber: member.chamber,
+            party: member.party,
+            state: member.state,
+            district: member.district,
+            officeStart: member.last_updated,
+            profileImageUrl: `https://theunitedstates.io/images/congress/225x275/${member.id}.jpg`
+          };
+          
+          await storage.createRepresentative(representative);
+        }
+        
+        // Fetch again with the populated storage
+        return res.json(await storage.getRepresentatives(filters));
       }
       
-      res.json({ result: member });
+      res.json(representatives);
     } catch (error) {
-      console.error("Error fetching member details:", error);
-      res.status(500).json({ error: "Failed to fetch member details" });
+      console.error("Error fetching representatives:", error);
+      res.status(500).json({ message: "Error fetching representatives data" });
     }
   });
-
-  // Get member's recent votes
-  app.get("/api/members/:id/votes", async (req: Request, res: Response) => {
+  
+  app.get("/api/representatives/:memberId", async (req, res) => {
     try {
-      const { id } = req.params;
-      const response = await propublicaClient.get(`/members/${id}/votes.json`);
-      res.json(response.data);
-    } catch (error) {
-      console.error("Error fetching member votes:", error);
-      res.status(500).json({ error: "Failed to fetch member votes" });
-    }
-  });
-
-  // Get specific bill details
-  app.get("/api/bills/:congress/:bill_id", async (req: Request, res: Response) => {
-    try {
-      const { congress, bill_id } = req.params;
-      const response = await propublicaClient.get(`/${congress}/bills/${bill_id}.json`);
-      res.json(response.data);
-    } catch (error) {
-      console.error("Error fetching bill details:", error);
-      res.status(500).json({ error: "Failed to fetch bill details" });
-    }
-  });
-
-  // Get specific vote details
-  app.get("/api/votes/:congress/:chamber/:session/:roll_call", async (req: Request, res: Response) => {
-    try {
-      const { congress, chamber, session, roll_call } = req.params;
-      const response = await propublicaClient.get(`/${congress}/${chamber}/sessions/${session}/votes/${roll_call}.json`);
-      res.json(response.data);
-    } catch (error) {
-      console.error("Error fetching vote details:", error);
-      res.status(500).json({ error: "Failed to fetch vote details" });
-    }
-  });
-
-  // Get user's vote preferences
-  app.get("/api/user/votes", async (_req: Request, res: Response) => {
-    try {
-      const preferences = await storage.getUserVotePreferences(1); // Use default user
-      res.json({ preferences });
-    } catch (error) {
-      console.error("Error fetching user vote preferences:", error);
-      res.status(500).json({ error: "Failed to fetch user vote preferences" });
-    }
-  });
-
-  // Save user vote preference
-  app.post("/api/user/votes", async (req: Request, res: Response) => {
-    try {
-      const preferenceData = insertUserVotePreferenceSchema.parse(req.body);
+      const { memberId } = req.params;
       
-      // Default to user ID 1 for now
-      const preference = await storage.saveUserVotePreference({
-        ...preferenceData,
-        userId: 1
-      });
+      let representative = await storage.getRepresentativeByMemberId(memberId);
       
-      res.json({ preference });
+      if (!representative) {
+        // Fetch from API if not in storage
+        const response = await axios.get(`${API_BASE_URL}/members/${memberId}.json`, {
+          headers: {
+            "X-API-Key": API_KEY
+          }
+        });
+        
+        const member = response.data.results[0];
+        
+        representative = await storage.createRepresentative({
+          memberId: member.id,
+          firstName: member.first_name,
+          lastName: member.last_name,
+          chamber: member.current_role?.chamber || "unknown",
+          party: member.current_party,
+          state: member.roles?.[0]?.state || "unknown",
+          district: member.roles?.[0]?.district,
+          officeStart: member.roles?.[0]?.start_date,
+          profileImageUrl: `https://theunitedstates.io/images/congress/225x275/${member.id}.jpg`
+        });
+      }
+      
+      res.json(representative);
     } catch (error) {
-      console.error("Error saving user vote preference:", error);
+      console.error("Error fetching representative:", error);
+      res.status(500).json({ message: "Error fetching representative data" });
+    }
+  });
+  
+  // API routes for votes
+  app.get("/api/votes/:memberId", async (req, res) => {
+    try {
+      const { memberId } = req.params;
+      const { category, timeframe } = req.query;
+      
+      // Get member votes from storage
+      let memberVotes = await storage.getMemberVotes(memberId);
+      
+      // If we don't have any member votes in storage, fetch from the API
+      if (memberVotes.length === 0) {
+        const response = await axios.get(`${API_BASE_URL}/members/${memberId}/votes.json`, {
+          headers: {
+            "X-API-Key": API_KEY
+          }
+        });
+        
+        const votes = response.data.results;
+        
+        for (const vote of votes) {
+          // Create vote record if it doesn't exist
+          let voteRecord = await storage.getVoteByBillId(vote.bill?.bill_id || `vote-${vote.roll_call}`);
+          
+          if (!voteRecord) {
+            voteRecord = await storage.createVote({
+              billId: vote.bill?.bill_id || `vote-${vote.roll_call}`,
+              billTitle: vote.bill?.title || vote.description || `Vote ${vote.roll_call}`,
+              billDescription: vote.bill?.latest_action || vote.description || "",
+              category: vote.bill?.primary_subject || "Uncategorized",
+              voteDate: new Date(vote.date)
+            });
+          }
+          
+          // Create member vote record
+          await storage.createMemberVote({
+            memberId,
+            billId: voteRecord.billId,
+            position: vote.position
+          });
+        }
+        
+        // Fetch again with the populated storage
+        memberVotes = await storage.getMemberVotes(memberId);
+      }
+      
+      // Get all votes information for these member votes
+      const voteDetails = [];
+      for (const memberVote of memberVotes) {
+        const vote = await storage.getVoteByBillId(memberVote.billId);
+        if (vote) {
+          // Get user preference if it exists (assuming user ID 1 for simplicity)
+          const userPref = await storage.getUserPreference(1, memberVote.billId);
+          
+          voteDetails.push({
+            ...vote,
+            position: memberVote.position,
+            userPreference: userPref || null
+          });
+        }
+      }
+      
+      // Apply filters
+      let filteredVotes = voteDetails;
+      
+      if (category && category !== "All Categories") {
+        filteredVotes = filteredVotes.filter(v => v.category === category);
+      }
+      
+      if (timeframe && timeframe !== "All Time") {
+        const now = new Date();
+        let startDate: Date;
+        
+        switch (timeframe) {
+          case "Last 30 Days":
+            startDate = new Date();
+            startDate.setDate(now.getDate() - 30);
+            filteredVotes = filteredVotes.filter(v => v.voteDate >= startDate);
+            break;
+          case "Last 90 Days":
+            startDate = new Date();
+            startDate.setDate(now.getDate() - 90);
+            filteredVotes = filteredVotes.filter(v => v.voteDate >= startDate);
+            break;
+          case "This Year":
+            startDate = new Date(now.getFullYear(), 0, 1);
+            filteredVotes = filteredVotes.filter(v => v.voteDate >= startDate);
+            break;
+        }
+      }
+      
+      // Sort by date (newest first)
+      filteredVotes.sort((a, b) => b.voteDate.getTime() - a.voteDate.getTime());
+      
+      res.json(filteredVotes);
+    } catch (error) {
+      console.error("Error fetching votes:", error);
+      res.status(500).json({ message: "Error fetching voting data" });
+    }
+  });
+  
+  // API route for user preferences
+  app.post("/api/preferences", async (req, res) => {
+    try {
+      // Validate request body
+      const validatedData = insertUserPreferenceSchema.parse(req.body);
+      
+      // Check if preference already exists
+      const existingPref = await storage.getUserPreference(
+        validatedData.userId, 
+        validatedData.billId
+      );
+      
+      if (existingPref) {
+        // Update existing preference
+        const updatedPref = await storage.updateUserPreference(
+          existingPref.id, 
+          validatedData
+        );
+        return res.json(updatedPref);
+      } else {
+        // Create new preference
+        const newPref = await storage.createUserPreference(validatedData);
+        return res.json(newPref);
+      }
+    } catch (error) {
+      console.error("Error saving preference:", error);
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid data", details: error.errors });
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
       }
-      res.status(500).json({ error: "Failed to save user vote preference" });
+      res.status(500).json({ message: "Error saving preference" });
     }
   });
-
-  // Get specific user vote preference
-  app.get("/api/user/votes/:bill_id/:congress_id", async (req: Request, res: Response) => {
+  
+  // API route for alignment scores
+  app.get("/api/alignment/:memberId", async (req, res) => {
     try {
-      const { bill_id, congress_id } = req.params;
-      const preference = await storage.getUserVotePreferenceForBill(1, bill_id, congress_id);
-      
-      if (!preference) {
-        return res.status(404).json({ error: "Vote preference not found" });
-      }
-      
-      res.json({ preference });
-    } catch (error) {
-      console.error("Error fetching user vote preference:", error);
-      res.status(500).json({ error: "Failed to fetch user vote preference" });
-    }
-  });
-
-  // Calculate alignment score
-  app.get("/api/alignment/:member_id", async (req: Request, res: Response) => {
-    try {
-      const { member_id } = req.params;
-      const summary = await storage.calculateAlignmentSummary(1, member_id);
-      res.json({ summary });
+      const { memberId } = req.params;
+      // Using user ID 1 for simplicity - in a real app this would come from session
+      const alignmentScore = await storage.calculateAlignmentScore(1, memberId);
+      res.json(alignmentScore);
     } catch (error) {
       console.error("Error calculating alignment:", error);
-      res.status(500).json({ error: "Failed to calculate alignment" });
+      res.status(500).json({ message: "Error calculating alignment score" });
     }
   });
-
-  // Get recent representatives
-  app.get("/api/user/recent-reps", async (_req: Request, res: Response) => {
+  
+  // API route for vote categories
+  app.get("/api/categories", async (req, res) => {
     try {
-      const reps = await storage.getRecentReps(1); // Use default user
-      res.json({ reps });
+      const votes = await storage.getVotes();
+      const categories = [...new Set(votes.map(v => v.category))];
+      res.json(categories);
     } catch (error) {
-      console.error("Error fetching recent representatives:", error);
-      res.status(500).json({ error: "Failed to fetch recent representatives" });
+      console.error("Error fetching categories:", error);
+      res.status(500).json({ message: "Error fetching categories" });
     }
   });
 
-  // Get congress options
-  app.get("/api/congresses", async (_req: Request, res: Response) => {
-    // Return a list of recent congresses
-    const congresses = [
-      { id: "117", name: "117th Congress (2021-2023)" },
-      { id: "116", name: "116th Congress (2019-2021)" },
-      { id: "115", name: "115th Congress (2017-2019)" },
-      { id: "114", name: "114th Congress (2015-2017)" },
-      { id: "113", name: "113th Congress (2013-2015)" },
-    ];
-    
-    res.json({ congresses });
-  });
-
+  // Create HTTP server
   const httpServer = createServer(app);
+
   return httpServer;
 }

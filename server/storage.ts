@@ -1,61 +1,72 @@
-import {
-  UserVotePreference,
-  InsertUserVotePreference,
-  RecentRep,
-  InsertRecentRep,
-  User,
-  InsertUser,
-  AlignmentSummary,
+import { 
+  users, type User, type InsertUser,
+  representatives, type Representative, type InsertRepresentative,
+  votes, type Vote, type InsertVote,
+  memberVotes, type MemberVote, type InsertMemberVote,
+  userPreferences, type UserPreference, type InsertUserPreference,
+  type AlignmentScore
 } from "@shared/schema";
 
-// modify the interface with any CRUD methods
-// you might need
 export interface IStorage {
-  // User methods (from template)
+  // User operations
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-
-  // Vote preference methods
-  getUserVotePreferences(userId: number): Promise<UserVotePreference[]>;
-  getUserVotePreferenceForBill(userId: number, billId: string, congressId: string): Promise<UserVotePreference | undefined>;
-  saveUserVotePreference(preference: InsertUserVotePreference): Promise<UserVotePreference>;
-  updateUserVotePreference(id: number, preference: Partial<InsertUserVotePreference>): Promise<UserVotePreference | undefined>;
-  deleteUserVotePreference(id: number): Promise<boolean>;
-
-  // Recent representatives methods
-  getRecentReps(userId: number, limit?: number): Promise<RecentRep[]>;
-  addRecentRep(rep: InsertRecentRep): Promise<RecentRep>;
-  deleteRecentRep(id: number): Promise<boolean>;
-
-  // Alignment calculation methods
-  calculateAlignmentSummary(userId: number, memberId: string): Promise<AlignmentSummary>;
+  
+  // Representative operations
+  getRepresentatives(filters?: { state?: string, chamber?: string, name?: string }): Promise<Representative[]>;
+  getRepresentative(id: number): Promise<Representative | undefined>;
+  getRepresentativeByMemberId(memberId: string): Promise<Representative | undefined>;
+  createRepresentative(representative: InsertRepresentative): Promise<Representative>;
+  
+  // Vote operations
+  getVotes(filters?: { category?: string, timeframe?: string }): Promise<Vote[]>;
+  getVote(id: number): Promise<Vote | undefined>;
+  getVoteByBillId(billId: string): Promise<Vote | undefined>;
+  createVote(vote: InsertVote): Promise<Vote>;
+  
+  // Member vote operations
+  getMemberVotes(memberId: string): Promise<MemberVote[]>;
+  createMemberVote(memberVote: InsertMemberVote): Promise<MemberVote>;
+  
+  // User preference operations
+  getUserPreferences(userId: number): Promise<UserPreference[]>;
+  getUserPreference(userId: number, billId: string): Promise<UserPreference | undefined>;
+  createUserPreference(preference: InsertUserPreference): Promise<UserPreference>;
+  updateUserPreference(id: number, preference: Partial<InsertUserPreference>): Promise<UserPreference>;
+  
+  // Alignment score calculation
+  calculateAlignmentScore(userId: number, memberId: string): Promise<AlignmentScore>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<number, User>;
-  private userVotePreferences: Map<number, UserVotePreference>;
-  private recentReps: Map<number, RecentRep>;
-  private currentUserId: number;
-  private currentPrefId: number;
-  private currentRepId: number;
+  private representatives: Map<number, Representative>;
+  private votes: Map<number, Vote>;
+  private memberVotes: Map<number, MemberVote>;
+  private userPreferences: Map<number, UserPreference>;
+  
+  private userCurrentId: number;
+  private representativeCurrentId: number;
+  private voteCurrentId: number;
+  private memberVoteCurrentId: number;
+  private userPreferenceCurrentId: number;
 
   constructor() {
     this.users = new Map();
-    this.userVotePreferences = new Map();
-    this.recentReps = new Map();
-    this.currentUserId = 1;
-    this.currentPrefId = 1;
-    this.currentRepId = 1;
+    this.representatives = new Map();
+    this.votes = new Map();
+    this.memberVotes = new Map();
+    this.userPreferences = new Map();
     
-    // Create a default user for unauthenticated operations
-    this.createUser({
-      username: "guest",
-      password: "guest",
-    });
+    this.userCurrentId = 1;
+    this.representativeCurrentId = 1;
+    this.voteCurrentId = 1;
+    this.memberVoteCurrentId = 1;
+    this.userPreferenceCurrentId = 1;
   }
 
-  // User methods (from template)
+  // User operations
   async getUser(id: number): Promise<User | undefined> {
     return this.users.get(id);
   }
@@ -67,176 +78,222 @@ export class MemStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentUserId++;
+    const id = this.userCurrentId++;
     const user: User = { ...insertUser, id };
     this.users.set(id, user);
     return user;
   }
-
-  // Vote preference methods
-  async getUserVotePreferences(userId: number): Promise<UserVotePreference[]> {
-    return Array.from(this.userVotePreferences.values()).filter(
-      (pref) => pref.userId === userId,
-    );
-  }
-
-  async getUserVotePreferenceForBill(userId: number, billId: string, congressId: string): Promise<UserVotePreference | undefined> {
-    return Array.from(this.userVotePreferences.values()).find(
-      (pref) => pref.userId === userId && pref.billId === billId && pref.congressId === congressId,
-    );
-  }
-
-  async saveUserVotePreference(preference: InsertUserVotePreference): Promise<UserVotePreference> {
-    // Check if there's an existing preference
-    const existing = await this.getUserVotePreferenceForBill(
-      preference.userId, 
-      preference.billId, 
-      preference.congressId
-    );
+  
+  // Representative operations
+  async getRepresentatives(filters?: { state?: string, chamber?: string, name?: string }): Promise<Representative[]> {
+    let representatives = Array.from(this.representatives.values());
     
-    if (existing) {
-      return this.updateUserVotePreference(existing.id, preference) as Promise<UserVotePreference>;
-    }
-
-    const id = this.currentPrefId++;
-    const timestamp = new Date();
-    const newPreference: UserVotePreference = { 
-      ...preference, 
-      id, 
-      createdAt: timestamp 
-    };
-    
-    this.userVotePreferences.set(id, newPreference);
-    return newPreference;
-  }
-
-  async updateUserVotePreference(id: number, preference: Partial<InsertUserVotePreference>): Promise<UserVotePreference | undefined> {
-    const existing = this.userVotePreferences.get(id);
-    
-    if (!existing) {
-      return undefined;
-    }
-    
-    const updated: UserVotePreference = { 
-      ...existing, 
-      ...preference 
-    };
-    
-    this.userVotePreferences.set(id, updated);
-    return updated;
-  }
-
-  async deleteUserVotePreference(id: number): Promise<boolean> {
-    return this.userVotePreferences.delete(id);
-  }
-
-  // Recent representatives methods
-  async getRecentReps(userId: number, limit = 5): Promise<RecentRep[]> {
-    return Array.from(this.recentReps.values())
-      .filter((rep) => rep.userId === userId)
-      .sort((a, b) => b.viewedAt.getTime() - a.viewedAt.getTime())
-      .slice(0, limit);
-  }
-
-  async addRecentRep(rep: InsertRecentRep): Promise<RecentRep> {
-    // Find if this rep is already in recent list
-    const existing = Array.from(this.recentReps.values()).find(
-      (r) => r.userId === rep.userId && r.memberId === rep.memberId
-    );
-    
-    if (existing) {
-      // Update the viewedAt timestamp
-      const updated: RecentRep = { 
-        ...existing, 
-        viewedAt: new Date() 
-      };
-      this.recentReps.set(existing.id, updated);
-      return updated;
-    }
-    
-    const id = this.currentRepId++;
-    const timestamp = new Date();
-    const newRep: RecentRep = { 
-      ...rep, 
-      id, 
-      viewedAt: timestamp 
-    };
-    
-    this.recentReps.set(id, newRep);
-    
-    // Limit each user to 5 recent reps
-    const userReps = await this.getRecentReps(rep.userId);
-    if (userReps.length > 5) {
-      // Delete the oldest one
-      const oldest = userReps[userReps.length - 1];
-      await this.deleteRecentRep(oldest.id);
-    }
-    
-    return newRep;
-  }
-
-  async deleteRecentRep(id: number): Promise<boolean> {
-    return this.recentReps.delete(id);
-  }
-
-  // Alignment calculation methods
-  async calculateAlignmentSummary(userId: number, memberId: string): Promise<AlignmentSummary> {
-    const userPreferences = await this.getUserVotePreferences(userId);
-    
-    // Filter preferences that have matching member votes
-    const relevantPreferences = userPreferences.filter(pref => 
-      pref.memberVote !== null && pref.memberVote !== 'Present' && pref.memberVote !== 'Not Voting'
-    );
-    
-    if (relevantPreferences.length === 0) {
-      return {
-        totalVotes: 0,
-        totalRated: 0,
-        matchCount: 0,
-        alignmentScore: 0,
-        importanceBreakdown: {},
-      };
-    }
-    
-    let matchCount = 0;
-    const importanceBreakdown: Record<number, { total: number; aligned: number; score: number }> = {};
-    
-    // Initialize importance breakdown buckets
-    for (let i = 1; i <= 5; i++) {
-      importanceBreakdown[i] = { total: 0, aligned: 0, score: 0 };
-    }
-    
-    // Calculate alignment
-    for (const pref of relevantPreferences) {
-      const isMatch = 
-        (pref.memberVote === 'Yes' && pref.userVote === 'Yes') || 
-        (pref.memberVote === 'No' && pref.userVote === 'No');
+    if (filters) {
+      if (filters.state) {
+        representatives = representatives.filter(rep => rep.state === filters.state);
+      }
       
-      importanceBreakdown[pref.importance].total++;
+      if (filters.chamber) {
+        representatives = representatives.filter(rep => rep.chamber === filters.chamber);
+      }
       
-      if (isMatch) {
-        matchCount++;
-        importanceBreakdown[pref.importance].aligned++;
+      if (filters.name) {
+        const searchTerm = filters.name.toLowerCase();
+        representatives = representatives.filter(rep => 
+          rep.firstName.toLowerCase().includes(searchTerm) || 
+          rep.lastName.toLowerCase().includes(searchTerm)
+        );
       }
     }
     
-    // Calculate scores for each importance level
-    for (let i = 1; i <= 5; i++) {
-      const bucket = importanceBreakdown[i];
-      bucket.score = bucket.total > 0 ? (bucket.aligned / bucket.total) * 100 : 0;
+    return representatives;
+  }
+  
+  async getRepresentative(id: number): Promise<Representative | undefined> {
+    return this.representatives.get(id);
+  }
+  
+  async getRepresentativeByMemberId(memberId: string): Promise<Representative | undefined> {
+    return Array.from(this.representatives.values()).find(
+      (rep) => rep.memberId === memberId,
+    );
+  }
+  
+  async createRepresentative(insertRepresentative: InsertRepresentative): Promise<Representative> {
+    const id = this.representativeCurrentId++;
+    const representative: Representative = { ...insertRepresentative, id };
+    this.representatives.set(id, representative);
+    return representative;
+  }
+  
+  // Vote operations
+  async getVotes(filters?: { category?: string, timeframe?: string }): Promise<Vote[]> {
+    let votes = Array.from(this.votes.values());
+    
+    if (filters) {
+      if (filters.category && filters.category !== 'All Categories') {
+        votes = votes.filter(vote => vote.category === filters.category);
+      }
+      
+      if (filters.timeframe) {
+        const now = new Date();
+        let startDate: Date;
+        
+        switch (filters.timeframe) {
+          case 'Last 30 Days':
+            startDate = new Date();
+            startDate.setDate(now.getDate() - 30);
+            votes = votes.filter(vote => vote.voteDate >= startDate);
+            break;
+          case 'Last 90 Days':
+            startDate = new Date();
+            startDate.setDate(now.getDate() - 90);
+            votes = votes.filter(vote => vote.voteDate >= startDate);
+            break;
+          case 'This Year':
+            startDate = new Date(now.getFullYear(), 0, 1);
+            votes = votes.filter(vote => vote.voteDate >= startDate);
+            break;
+        }
+      }
     }
     
-    const alignmentScore = relevantPreferences.length > 0 
-      ? (matchCount / relevantPreferences.length) * 100 
-      : 0;
+    // Sort by date (newest first)
+    return votes.sort((a, b) => b.voteDate.getTime() - a.voteDate.getTime());
+  }
+  
+  async getVote(id: number): Promise<Vote | undefined> {
+    return this.votes.get(id);
+  }
+  
+  async getVoteByBillId(billId: string): Promise<Vote | undefined> {
+    return Array.from(this.votes.values()).find(
+      (vote) => vote.billId === billId,
+    );
+  }
+  
+  async createVote(insertVote: InsertVote): Promise<Vote> {
+    const id = this.voteCurrentId++;
+    const vote: Vote = { ...insertVote, id };
+    this.votes.set(id, vote);
+    return vote;
+  }
+  
+  // Member vote operations
+  async getMemberVotes(memberId: string): Promise<MemberVote[]> {
+    return Array.from(this.memberVotes.values()).filter(
+      (memberVote) => memberVote.memberId === memberId,
+    );
+  }
+  
+  async createMemberVote(insertMemberVote: InsertMemberVote): Promise<MemberVote> {
+    const id = this.memberVoteCurrentId++;
+    const memberVote: MemberVote = { ...insertMemberVote, id };
+    this.memberVotes.set(id, memberVote);
+    return memberVote;
+  }
+  
+  // User preference operations
+  async getUserPreferences(userId: number): Promise<UserPreference[]> {
+    return Array.from(this.userPreferences.values()).filter(
+      (preference) => preference.userId === userId,
+    );
+  }
+  
+  async getUserPreference(userId: number, billId: string): Promise<UserPreference | undefined> {
+    return Array.from(this.userPreferences.values()).find(
+      (preference) => preference.userId === userId && preference.billId === billId,
+    );
+  }
+  
+  async createUserPreference(insertPreference: InsertUserPreference): Promise<UserPreference> {
+    const id = this.userPreferenceCurrentId++;
+    const preference: UserPreference = { ...insertPreference, id };
+    this.userPreferences.set(id, preference);
+    return preference;
+  }
+  
+  async updateUserPreference(id: number, updates: Partial<InsertUserPreference>): Promise<UserPreference> {
+    const preference = this.userPreferences.get(id);
+    if (!preference) {
+      throw new Error(`User preference with id ${id} not found`);
+    }
     
-    return {
-      totalVotes: relevantPreferences.length,
-      totalRated: relevantPreferences.length,
-      matchCount,
-      alignmentScore,
-      importanceBreakdown,
+    const updatedPreference = { ...preference, ...updates };
+    this.userPreferences.set(id, updatedPreference);
+    return updatedPreference;
+  }
+  
+  // Alignment score calculation
+  async calculateAlignmentScore(userId: number, memberId: string): Promise<AlignmentScore> {
+    const memberVotes = await this.getMemberVotes(memberId);
+    const userPreferences = await this.getUserPreferences(userId);
+    
+    // Initialize alignment score
+    const alignmentScore: AlignmentScore = {
+      total: 0,
+      agree: 0,
+      disagree: 0,
+      percentage: 0,
+      byImportance: {
+        high: { total: 0, agree: 0, disagree: 0, percentage: 0 },
+        medium: { total: 0, agree: 0, disagree: 0, percentage: 0 },
+        low: { total: 0, agree: 0, disagree: 0, percentage: 0 }
+      }
     };
+    
+    // Filter user preferences to only include those with corresponding member votes
+    const memberVoteBillIds = memberVotes.map(mv => mv.billId);
+    const relevantPreferences = userPreferences.filter(pref => 
+      memberVoteBillIds.includes(pref.billId)
+    );
+    
+    if (relevantPreferences.length === 0) {
+      return alignmentScore;
+    }
+    
+    alignmentScore.total = relevantPreferences.length;
+    
+    // Calculate alignment for each preference
+    for (const pref of relevantPreferences) {
+      const memberVote = memberVotes.find(mv => mv.billId === pref.billId);
+      if (!memberVote) continue;
+      
+      // Check if user agrees with member's vote
+      // "Yes" vote and agreement=true or "No" vote and agreement=false
+      const memberVotedYes = memberVote.position === 'Yes';
+      const userAgrees = pref.agreement;
+      
+      const isAligned = (memberVotedYes && userAgrees) || (!memberVotedYes && !userAgrees);
+      
+      if (isAligned) {
+        alignmentScore.agree++;
+      } else {
+        alignmentScore.disagree++;
+      }
+      
+      // Update by importance
+      const importanceLevel = pref.importance === 3 ? 'high' : pref.importance === 2 ? 'medium' : 'low';
+      
+      alignmentScore.byImportance[importanceLevel].total++;
+      if (isAligned) {
+        alignmentScore.byImportance[importanceLevel].agree++;
+      } else {
+        alignmentScore.byImportance[importanceLevel].disagree++;
+      }
+    }
+    
+    // Calculate percentages
+    alignmentScore.percentage = Math.round((alignmentScore.agree / alignmentScore.total) * 100);
+    
+    for (const level of ['high', 'medium', 'low'] as const) {
+      const { total, agree } = alignmentScore.byImportance[level];
+      if (total > 0) {
+        alignmentScore.byImportance[level].percentage = Math.round((agree / total) * 100);
+      }
+    }
+    
+    return alignmentScore;
   }
 }
 

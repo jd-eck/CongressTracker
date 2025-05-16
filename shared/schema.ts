@@ -1,173 +1,153 @@
-import { pgTable, text, serial, integer, boolean, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// User preferences for each bill/vote
-export const userVotePreferences = pgTable("user_vote_preferences", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id"), // Placeholder for future auth implementation
-  billId: text("bill_id").notNull(),
-  congressId: text("congress_id").notNull(),
-  memberVote: text("member_vote").notNull(), // 'Yes', 'No', etc.
-  userVote: text("user_vote").notNull(), // 'Yes', 'No'
-  importance: integer("importance").notNull(), // 1-5 star rating
-  notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Recent representatives that the user has viewed
-export const recentReps = pgTable("recent_reps", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id"), // Placeholder for future auth implementation
-  memberId: text("member_id").notNull(), // ProPublica ID
-  memberName: text("member_name").notNull(),
-  chamber: text("chamber").notNull(), // 'house' or 'senate'
-  state: text("state").notNull(),
-  district: text("district"),
-  party: text("party").notNull(),
-  viewedAt: timestamp("viewed_at").defaultNow(),
-});
-
-// Original schema from template (kept for compatibility)
+// Original user schema
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
 });
 
-// Schemas for insert operations
-export const insertUserVotePreferenceSchema = createInsertSchema(userVotePreferences).omit({
-  id: true,
-  createdAt: true,
+export const insertUserSchema = createInsertSchema(users).pick({
+  username: true,
+  password: true,
 });
-
-export const insertRecentRepSchema = createInsertSchema(recentReps).omit({
-  id: true,
-  viewedAt: true,
-});
-
-export const insertUserSchema = createInsertSchema(users).omit({
-  id: true,
-});
-
-// Types for database operations
-export type InsertUserVotePreference = z.infer<typeof insertUserVotePreferenceSchema>;
-export type UserVotePreference = typeof userVotePreferences.$inferSelect;
-
-export type InsertRecentRep = z.infer<typeof insertRecentRepSchema>;
-export type RecentRep = typeof recentReps.$inferSelect;
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
-// API response types
+// Congressional member schema
+export const representatives = pgTable("representatives", {
+  id: serial("id").primaryKey(),
+  memberId: text("member_id").notNull().unique(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  chamber: text("chamber").notNull(), // 'senate' or 'house'
+  party: text("party").notNull(),
+  state: text("state").notNull(),
+  district: text("district"),
+  officeStart: text("office_start"),
+  profileImageUrl: text("profile_image_url"),
+});
+
+export const insertRepresentativeSchema = createInsertSchema(representatives).omit({
+  id: true,
+});
+
+export type InsertRepresentative = z.infer<typeof insertRepresentativeSchema>;
+export type Representative = typeof representatives.$inferSelect;
+
+// Bills/Votes schema
+export const votes = pgTable("votes", {
+  id: serial("id").primaryKey(),
+  billId: text("bill_id").notNull(),
+  billTitle: text("bill_title").notNull(),
+  billDescription: text("bill_description").notNull(),
+  category: text("category"),
+  voteDate: timestamp("vote_date").notNull(),
+});
+
+export const insertVoteSchema = createInsertSchema(votes).omit({
+  id: true,
+});
+
+export type InsertVote = z.infer<typeof insertVoteSchema>;
+export type Vote = typeof votes.$inferSelect;
+
+// Member votes on bills
+export const memberVotes = pgTable("member_votes", {
+  id: serial("id").primaryKey(),
+  memberId: text("member_id").notNull(),
+  billId: text("bill_id").notNull(),
+  position: text("position").notNull(), // 'Yes', 'No', 'Present', 'Not Voting'
+});
+
+export const insertMemberVoteSchema = createInsertSchema(memberVotes).omit({
+  id: true,
+});
+
+export type InsertMemberVote = z.infer<typeof insertMemberVoteSchema>;
+export type MemberVote = typeof memberVotes.$inferSelect;
+
+// User preferences on votes
+export const userPreferences = pgTable("user_preferences", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  billId: text("bill_id").notNull(),
+  agreement: boolean("agreement").notNull(), // true if user agrees with the vote
+  importance: integer("importance").notNull(), // 1 = low, 2 = medium, 3 = high
+});
+
+export const insertUserPreferenceSchema = createInsertSchema(userPreferences).omit({
+  id: true,
+});
+
+export type InsertUserPreference = z.infer<typeof insertUserPreferenceSchema>;
+export type UserPreference = typeof userPreferences.$inferSelect;
+
+// API responses for Congress API
 export type CongressMember = {
   id: string;
-  name: string;
+  title: string;
+  short_title: string;
   first_name: string;
   last_name: string;
-  party: string;
   state: string;
+  party: string;
   district?: string;
-  chamber: 'house' | 'senate';
-  role: string;
+  chamber: string;
+  seniority: string;
+  next_election?: string;
   office?: string;
   phone?: string;
   url?: string;
-  seniority?: string;
-  next_election?: string;
+  twitter_account?: string;
+  facebook_account?: string;
+  youtube_account?: string;
+  last_updated: string;
 };
 
-export type Bill = {
+export type CongressVote = {
   bill_id: string;
-  bill_slug: string;
-  congress: string;
-  number: string;
-  title: string;
-  short_title: string;
-  sponsor_name: string;
-  sponsor_id: string;
-  introduced_date: string;
-  committees: string;
-  latest_major_action: string;
-  latest_major_action_date: string;
-  house_passage?: string;
-  senate_passage?: string;
-  summary?: string;
-  primary_subject?: string;
-};
-
-export type Vote = {
-  vote_id: string;
+  bill_title: string;
+  bill_description: string;
+  vote_date: string;
   chamber: string;
-  congress: string;
-  bill: {
-    bill_id: string;
-    number: string;
-    bill_title: string;
-  };
-  question: string;
-  description: string;
-  vote_type: string;
-  date: string;
-  time: string;
+  category: string;
   result: string;
-  total_yes: number;
-  total_no: number;
-  total_not_voting: number;
-  democratic: {
-    yes: number;
-    no: number;
-    not_voting: number;
-  };
-  republican: {
-    yes: number;
-    no: number;
-    not_voting: number;
-  };
-  independent: {
-    yes: number;
-    no: number;
-    not_voting: number;
-  };
+  yes: number;
+  no: number;
+  not_voting: number;
+  positions: Array<{
+    member_id: string;
+    vote_position: string;
+  }>;
 };
 
-export type MemberVote = {
-  member_id: string;
-  vote_id: string;
-  bill_id: string;
-  position: string; // 'Yes', 'No', 'Not Voting', etc.
-  congress: string;
-  chamber: string;
-  date: string;
-  question: string;
-  description: string;
-  result: string;
-  bill: {
-    bill_id: string;
-    number: string;
-    bill_title: string;
-    latest_action: string;
-  };
-};
-
-export type AlignmentSummary = {
-  totalVotes: number;
-  totalRated: number;
-  matchCount: number;
-  alignmentScore: number;
-  importanceBreakdown: {
-    [key: number]: {
+export type AlignmentScore = {
+  total: number;
+  agree: number;
+  disagree: number;
+  percentage: number;
+  byImportance: {
+    high: {
       total: number;
-      aligned: number;
-      score: number;
+      agree: number;
+      disagree: number;
+      percentage: number;
     };
-  };
-  policyBreakdown?: {
-    [key: string]: {
+    medium: {
       total: number;
-      aligned: number;
-      score: number;
+      agree: number;
+      disagree: number;
+      percentage: number;
+    };
+    low: {
+      total: number;
+      agree: number;
+      disagree: number;
+      percentage: number;
     };
   };
 };
