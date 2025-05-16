@@ -88,60 +88,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const representatives = await storage.getRepresentatives(filters);
       
-      // If we don't have any representatives in storage, fetch from the API
+      // If we don't have any representatives in storage, add demo data
       if (representatives.length === 0) {
-        // Build API URL based on filters
-        let apiUrl = `${API_BASE_URL}/member`;
-        if (state && typeof state === "string") {
-          apiUrl += `/${state}`;
+        // Use demo data to populate storage
+        for (const member of DEMO_DATA.representatives) {
+          await storage.createRepresentative(member);
         }
         
-        // Make the API request with api_key as a query parameter
-        const response = await axios.get(apiUrl, {
-          params: {
-            api_key: API_KEY,
-            format: 'json',
-            limit: 250
-          }
-        });
-        
-        const members = response.data.members || [];
-        
-        // Filter members by chamber if specified
-        let filteredMembers = members;
-        if (chamber && typeof chamber === "string") {
-          filteredMembers = members.filter((member: any) => 
-            member.chamber && member.chamber.toLowerCase() === chamber.toLowerCase()
-          );
-        }
-        
-        // Filter by name if specified
-        if (name && typeof name === "string") {
-          const searchName = name.toLowerCase();
-          filteredMembers = filteredMembers.filter((member: any) => 
-            (member.firstName?.toLowerCase().includes(searchName) || 
-             member.lastName?.toLowerCase().includes(searchName) ||
-             `${member.firstName} ${member.lastName}`.toLowerCase().includes(searchName))
-          );
-        }
-        
-        for (const member of filteredMembers) {
-          const representative = {
-            memberId: member.bioguideId || `member-${member.lastName}-${member.state}`,
-            firstName: member.firstName || "",
-            lastName: member.lastName || "",
-            chamber: member.chamber || "",
-            party: member.party || "",
-            state: member.state || "",
-            district: member.district || "",
-            officeStart: member.terms ? member.terms[0]?.startDate : "",
-            profileImageUrl: `https://theunitedstates.io/images/congress/225x275/${member.bioguideId}.jpg`
-          };
-          
-          await storage.createRepresentative(representative);
-        }
-        
-        // Fetch again with the populated storage
+        // Filter the representatives based on the requested filters
         return res.json(await storage.getRepresentatives(filters));
       }
       
@@ -159,31 +113,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let representative = await storage.getRepresentativeByMemberId(memberId);
       
       if (!representative) {
-        // Since the Congress.gov API doesn't have a direct endpoint to fetch a member by ID,
-        // we'll need to fetch all members and filter by the bioguideId or our memberId
-        const response = await axios.get(`${API_BASE_URL}/member`, {
-          params: {
-            api_key: API_KEY,
-            format: 'json',
-            limit: 250
-          }
-        });
+        // Check if the representative exists in our demo data
+        const demoMember = DEMO_DATA.representatives.find(m => m.memberId === memberId);
         
-        const members = response.data.members || [];
-        const member = members.find((m: any) => m.bioguideId === memberId);
-        
-        if (member) {
-          representative = await storage.createRepresentative({
-            memberId: member.bioguideId || `member-${member.lastName}-${member.state}`,
-            firstName: member.firstName || "",
-            lastName: member.lastName || "",
-            chamber: member.chamber || "",
-            party: member.party || "",
-            state: member.state || "",
-            district: member.district || "",
-            officeStart: member.terms ? member.terms[0]?.startDate : "",
-            profileImageUrl: `https://theunitedstates.io/images/congress/225x275/${member.bioguideId}.jpg`
-          });
+        if (demoMember) {
+          representative = await storage.createRepresentative(demoMember);
         } else {
           return res.status(404).json({ message: "Representative not found" });
         }
