@@ -1,0 +1,1 @@
+# Currently, this project is mostly conecptual- I have ideas for what I would like this to do, and have worked on the database being updated via the API. Currently keeping this public as I build out a bit more. 
