@@ -109,6 +109,7 @@ The application uses a PostgreSQL database with the following main entities:
 ## Changelog
 
 Changelog:
+- July 30, 2025. Successfully integrated PostgreSQL database using Neon, replacing in-memory storage with persistent database storage
 - July 02, 2025. Initial setup
 
 ## User Preferences
