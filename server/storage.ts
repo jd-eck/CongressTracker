@@ -121,7 +121,13 @@ export class MemStorage implements IStorage {
   
   async createRepresentative(insertRepresentative: InsertRepresentative): Promise<Representative> {
     const id = this.representativeCurrentId++;
-    const representative: Representative = { ...insertRepresentative, id };
+    const representative: Representative = { 
+      ...insertRepresentative, 
+      id,
+      district: insertRepresentative.district ?? null,
+      officeStart: insertRepresentative.officeStart ?? null,
+      profileImageUrl: insertRepresentative.profileImageUrl ?? null
+    };
     this.representatives.set(id, representative);
     return representative;
   }
@@ -174,7 +180,11 @@ export class MemStorage implements IStorage {
   
   async createVote(insertVote: InsertVote): Promise<Vote> {
     const id = this.voteCurrentId++;
-    const vote: Vote = { ...insertVote, id };
+    const vote: Vote = { 
+      ...insertVote, 
+      id,
+      category: insertVote.category ?? null
+    };
     this.votes.set(id, vote);
     return vote;
   }
