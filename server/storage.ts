@@ -6,6 +6,8 @@ import {
   userPreferences, type UserPreference, type InsertUserPreference,
   type AlignmentScore
 } from "@shared/schema";
+import { db } from "./db";
+import { eq, and, or, ilike, gte, desc } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
@@ -307,4 +309,248 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export class DatabaseStorage implements IStorage {
+  // User operations
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(insertUser)
+      .returning();
+    return user;
+  }
+
+  // Representative operations
+  async getRepresentatives(filters?: { state?: string, chamber?: string, name?: string }): Promise<Representative[]> {
+    const conditions = [];
+
+    if (filters?.state) {
+      conditions.push(eq(representatives.state, filters.state));
+    }
+
+    if (filters?.chamber) {
+      conditions.push(eq(representatives.chamber, filters.chamber));
+    }
+
+    if (filters?.name) {
+      const searchTerm = `%${filters.name.toLowerCase()}%`;
+      conditions.push(
+        or(
+          ilike(representatives.firstName, searchTerm),
+          ilike(representatives.lastName, searchTerm)
+        )
+      );
+    }
+
+    if (conditions.length > 0) {
+      return await db.select().from(representatives).where(and(...conditions));
+    }
+
+    return await db.select().from(representatives);
+  }
+
+  async getRepresentative(id: number): Promise<Representative | undefined> {
+    const [representative] = await db.select().from(representatives).where(eq(representatives.id, id));
+    return representative || undefined;
+  }
+
+  async getRepresentativeByMemberId(memberId: string): Promise<Representative | undefined> {
+    const [representative] = await db.select().from(representatives).where(eq(representatives.memberId, memberId));
+    return representative || undefined;
+  }
+
+  async createRepresentative(insertRepresentative: InsertRepresentative): Promise<Representative> {
+    const [representative] = await db
+      .insert(representatives)
+      .values(insertRepresentative)
+      .returning();
+    return representative;
+  }
+
+  // Vote operations
+  async getVotes(filters?: { category?: string, timeframe?: string }): Promise<Vote[]> {
+    const conditions = [];
+
+    if (filters?.category && filters.category !== 'All Categories') {
+      conditions.push(eq(votes.category, filters.category));
+    }
+
+    if (filters?.timeframe) {
+      const now = new Date();
+      let startDate: Date;
+
+      switch (filters.timeframe) {
+        case 'Last 30 Days':
+          startDate = new Date();
+          startDate.setDate(now.getDate() - 30);
+          conditions.push(gte(votes.voteDate, startDate));
+          break;
+        case 'Last 90 Days':
+          startDate = new Date();
+          startDate.setDate(now.getDate() - 90);
+          conditions.push(gte(votes.voteDate, startDate));
+          break;
+        case 'This Year':
+          startDate = new Date(now.getFullYear(), 0, 1);
+          conditions.push(gte(votes.voteDate, startDate));
+          break;
+      }
+    }
+
+    if (conditions.length > 0) {
+      // Sort by date (newest first)
+      return await db.select().from(votes).where(and(...conditions)).orderBy(desc(votes.voteDate));
+    }
+
+    // Sort by date (newest first)
+    return await db.select().from(votes).orderBy(desc(votes.voteDate));
+  }
+
+  async getVote(id: number): Promise<Vote | undefined> {
+    const [vote] = await db.select().from(votes).where(eq(votes.id, id));
+    return vote || undefined;
+  }
+
+  async getVoteByBillId(billId: string): Promise<Vote | undefined> {
+    const [vote] = await db.select().from(votes).where(eq(votes.billId, billId));
+    return vote || undefined;
+  }
+
+  async createVote(insertVote: InsertVote): Promise<Vote> {
+    const [vote] = await db
+      .insert(votes)
+      .values(insertVote)
+      .returning();
+    return vote;
+  }
+
+  // Member vote operations
+  async getMemberVotes(memberId: string): Promise<MemberVote[]> {
+    return await db.select().from(memberVotes).where(eq(memberVotes.memberId, memberId));
+  }
+
+  async createMemberVote(insertMemberVote: InsertMemberVote): Promise<MemberVote> {
+    const [memberVote] = await db
+      .insert(memberVotes)
+      .values(insertMemberVote)
+      .returning();
+    return memberVote;
+  }
+
+  // User preference operations
+  async getUserPreferences(userId: number): Promise<UserPreference[]> {
+    return await db.select().from(userPreferences).where(eq(userPreferences.userId, userId));
+  }
+
+  async getUserPreference(userId: number, billId: string): Promise<UserPreference | undefined> {
+    const [preference] = await db.select().from(userPreferences).where(
+      and(eq(userPreferences.userId, userId), eq(userPreferences.billId, billId))
+    );
+    return preference || undefined;
+  }
+
+  async createUserPreference(insertPreference: InsertUserPreference): Promise<UserPreference> {
+    const [preference] = await db
+      .insert(userPreferences)
+      .values(insertPreference)
+      .returning();
+    return preference;
+  }
+
+  async updateUserPreference(id: number, updates: Partial<InsertUserPreference>): Promise<UserPreference> {
+    const [preference] = await db
+      .update(userPreferences)
+      .set(updates)
+      .where(eq(userPreferences.id, id))
+      .returning();
+    
+    if (!preference) {
+      throw new Error(`User preference with id ${id} not found`);
+    }
+    
+    return preference;
+  }
+
+  // Alignment score calculation
+  async calculateAlignmentScore(userId: number, memberId: string): Promise<AlignmentScore> {
+    const memberVotesData = await this.getMemberVotes(memberId);
+    const userPreferencesData = await this.getUserPreferences(userId);
+    
+    // Initialize alignment score
+    const alignmentScore: AlignmentScore = {
+      total: 0,
+      agree: 0,
+      disagree: 0,
+      percentage: 0,
+      byImportance: {
+        high: { total: 0, agree: 0, disagree: 0, percentage: 0 },
+        medium: { total: 0, agree: 0, disagree: 0, percentage: 0 },
+        low: { total: 0, agree: 0, disagree: 0, percentage: 0 }
+      }
+    };
+    
+    // Filter user preferences to only include those with corresponding member votes
+    const memberVoteBillIds = memberVotesData.map(mv => mv.billId);
+    const relevantPreferences = userPreferencesData.filter(pref => 
+      memberVoteBillIds.includes(pref.billId)
+    );
+    
+    if (relevantPreferences.length === 0) {
+      return alignmentScore;
+    }
+    
+    alignmentScore.total = relevantPreferences.length;
+    
+    // Calculate alignment for each preference
+    for (const pref of relevantPreferences) {
+      const memberVote = memberVotesData.find(mv => mv.billId === pref.billId);
+      if (!memberVote) continue;
+      
+      // Check if user agrees with member's vote
+      // "Yes" vote and agreement=true or "No" vote and agreement=false
+      const memberVotedYes = memberVote.position === 'Yes';
+      const userAgrees = pref.agreement;
+      
+      const isAligned = (memberVotedYes && userAgrees) || (!memberVotedYes && !userAgrees);
+      
+      if (isAligned) {
+        alignmentScore.agree++;
+      } else {
+        alignmentScore.disagree++;
+      }
+      
+      // Update by importance
+      const importanceLevel = pref.importance === 3 ? 'high' : pref.importance === 2 ? 'medium' : 'low';
+      
+      alignmentScore.byImportance[importanceLevel].total++;
+      if (isAligned) {
+        alignmentScore.byImportance[importanceLevel].agree++;
+      } else {
+        alignmentScore.byImportance[importanceLevel].disagree++;
+      }
+    }
+    
+    // Calculate percentages
+    alignmentScore.percentage = Math.round((alignmentScore.agree / alignmentScore.total) * 100);
+    
+    for (const level of ['high', 'medium', 'low'] as const) {
+      const { total, agree } = alignmentScore.byImportance[level];
+      if (total > 0) {
+        alignmentScore.byImportance[level].percentage = Math.round((agree / total) * 100);
+      }
+    }
+    
+    return alignmentScore;
+  }
+}
+
+export const storage = new DatabaseStorage();
